@@ -1,0 +1,140 @@
+import { Palette2 } from "palette.slint";
+
+// A standalone colorized icon at a given logical size.
+export component Icon inherits Image {
+    in property <color> icon-color: Palette2.text-main;
+    in property <length> icon-size: 16px;
+    width: root.icon-size;
+    height: root.icon-size;
+    colorize: root.icon-color;
+}
+
+// Icon + optional label button. Used wherever the old design baked an emoji glyph
+// directly into the button text (start/stop/test/delete/repair/save/theme/refresh/back) —
+// replacing tofu-risk emoji with real vector icons (see Phase 0b). Styled to sit visually
+// close to the native Fluent `Button` it replaces (same height/radius/hover feel) so the
+// two aren't jarringly inconsistent where they appear side by side.
+export component IconButton inherits Rectangle {
+    in property <image> icon;
+    in property <string> label: "";
+    in property <bool> primary: false;
+    in property <bool> enabled: true;
+    in property <length> icon-size: 15px;
+    callback clicked();
+
+    height: 32px;
+    border-radius: 4px;
+    background: root.primary
+        ? Palette2.accent
+        : (ta.pressed ? Palette2.row-hover : (ta.has-hover ? Palette2.row-hover : transparent));
+    border-width: root.primary ? 0px : 1px;
+    border-color: Palette2.card-border;
+    opacity: root.enabled ? 1.0 : 0.5;
+    animate background { duration: 100ms; }
+
+    property <color> fg: root.primary ? #1a1204 : Palette2.text-main;
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 6px;
+        alignment: center;
+        Image {
+            source: root.icon;
+            width: root.icon-size;
+            height: root.icon-size;
+            colorize: root.fg;
+        }
+        if root.label != "": Text {
+            text: root.label;
+            font-size: 12px;
+            font-weight: 600;
+            color: root.fg;
+            vertical-alignment: center;
+        }
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        clicked => { if (root.enabled) { root.clicked(); } }
+    }
+}
+
+// Card container used throughout the dashboard/settings views. background/border-radius/
+// border are fixed (identical across all 5 call sites); width/height/clip are left unbound
+// so each call site can size itself (fixed-width sidebar vs. stretch-to-fill cards) —
+// x/y/width/height are always externally overridable in Slint regardless of this.
+export component Panel inherits Rectangle {
+    background: Palette2.card-bg;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: Palette2.card-border;
+}
+
+// Small colored badge for a routing decision (Nodes/Connections/Rules views). Colors
+// mirror the three-way route semantics established in Phase 0a; label text is supplied
+// by the caller (already translated) rather than looked up here, since Tr lives in
+// main.slint and components.slint must not import it back (main.slint imports this file).
+export component RouteChip inherits Rectangle {
+    in property <string> route: "proxy"; // "direct" | "proxy" | "block" — selects color only
+    in property <string> label: "";
+    property <color> chip-color: root.route == "direct" ? Palette2.route-direct
+        : (root.route == "block" ? Palette2.route-block : Palette2.route-proxy);
+
+    height: 20px;
+    border-radius: 10px;
+    background: Palette2.card-bg;
+    border-width: 1px;
+    border-color: root.chip-color;
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        alignment: center;
+        Text {
+            text: root.label;
+            color: root.chip-color;
+            font-size: 11px;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// Multi-option picker — e.g. routing mode (Global/CnDirect/Custom) in Phase 6, or a
+// protocol selector in Phase 4's node editor. Options are plain strings (caller passes
+// already-translated labels), selection is by index.
+export component SegmentedControl inherits Rectangle {
+    in property <[string]> options: [];
+    in-out property <int> selected: 0;
+    callback selected-changed(int);
+
+    height: 32px;
+    border-radius: 6px;
+    background: Palette2.page-bg;
+    border-width: 1px;
+    border-color: Palette2.card-border;
+    clip: true;
+
+    HorizontalLayout {
+        padding: 2px;
+        spacing: 2px;
+        for opt[i] in root.options: Rectangle {
+            border-radius: 4px;
+            background: i == root.selected ? Palette2.accent : (ta.has-hover ? Palette2.row-hover : transparent);
+            animate background { duration: 100ms; }
+            Text {
+                text: opt;
+                font-size: 12px;
+                font-weight: 600;
+                color: i == root.selected ? #1a1204 : Palette2.text-dim;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            ta := TouchArea {
+                clicked => {
+                    root.selected = i;
+                    root.selected-changed(i);
+                }
+            }
+        }
+    }
+}

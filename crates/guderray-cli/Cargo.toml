@@ -1,0 +1,17 @@
+[package]
+name = "guderray-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "guderray"
+path = "src/main.rs"
+
+[dependencies]
+guderray-core = { path = "../guderray-core" }
+guderray-engine = { path = "../guderray-engine" }
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+clap.workspace = true

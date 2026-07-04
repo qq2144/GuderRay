@@ -1,0 +1,24 @@
+[package]
+name = "guderray-gui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "guderray-gui"
+path = "src/main.rs"
+
+[dependencies]
+guderray-core = { path = "../guderray-core" }
+guderray-engine = { path = "../guderray-engine" }
+serde_json.workspace = true
+anyhow.workspace = true
+slint = "1"
+tray-icon = "0.19"
+# RFC3339 parsing only, for the Connections view's elapsed-duration column — the
+# Clash API's connection `start` timestamps come with sub-second precision + a UTC
+# offset that isn't worth hand-parsing.
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+
+[build-dependencies]
+slint-build = "1"

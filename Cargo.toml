@@ -1,0 +1,47 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/guderray-core",
+    "crates/guderray-engine",
+    "crates/guderray-cli",
+    "crates/guderray-gui",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+authors = ["GuderRay"]
+repository = ""
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+anyhow = "1"
+base64 = "0.22"
+url = "2"
+percent-encoding = "2"
+clap = { version = "4", features = ["derive"] }
+directories = "5"
+
+[profile.release]
+strip = true
+lto = true
+opt-level = "z"
+codegen-units = 1
+panic = "abort"
+
+# guderray-gui keeps crashing rustc's LLVM backend in debug builds (rustc-LLVM "out of
+# memory" / STATUS_STACK_BUFFER_OVERRUN) as the app grows — reproduced repeatedly across
+# several phases, release builds are unaffected. Root cause has two parts: (1) main.slint
+# is macro-expanded into main.rs's own compilation unit via slint::include_modules!(), so
+# the effective size of that one compile grows with the UI, not just main.rs's source
+# lines; (2) debug builds default to 256 parallel codegen units, and codegen threads
+# *within one rustc process* were still exhausting memory even with debug=false and
+# `cargo build -j 1` (single-crate parallelism doesn't limit rustc's own internal
+# thread count). `codegen-units = 1` fixes that second part directly instead of relying
+# on remembering `-j` flags in every future build invocation (including CI).
+[profile.dev]
+debug = false
+codegen-units = 1

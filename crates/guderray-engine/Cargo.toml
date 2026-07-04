@@ -1,0 +1,19 @@
+[package]
+name = "guderray-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+guderray-core = { path = "../guderray-core" }
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+ureq = { version = "2", features = ["json"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+sysproxy = "0.3"
+sha2 = "0.10"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading"] }
+winreg = "0.52"

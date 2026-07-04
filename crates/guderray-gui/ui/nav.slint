@@ -1,0 +1,87 @@
+import { Palette2 } from "palette.slint";
+
+export enum AppView { Dashboard, Nodes, Connections, Rules, Subscriptions, Settings }
+
+component RailButton inherits Rectangle {
+    in property <image> icon;
+    in property <bool> active: false;
+    callback clicked();
+
+    width: 52px;
+    height: 44px;
+    border-radius: 8px;
+    background: root.active
+        ? Palette2.accent
+        : (ta.has-hover ? Palette2.row-hover : transparent);
+    animate background { duration: 100ms; }
+
+    Image {
+        source: root.icon;
+        width: 18px;
+        height: 18px;
+        colorize: root.active ? #1a1204 : Palette2.text-dim;
+    }
+    ta := TouchArea { clicked => { root.clicked(); } }
+}
+
+// Left navigation rail: 5 primary views on top, Settings pinned to the bottom.
+export component IconRail inherits Rectangle {
+    in-out property <AppView> current: AppView.Dashboard;
+    in property <image> icon-dashboard;
+    in property <image> icon-nodes;
+    in property <image> icon-connections;
+    in property <image> icon-rules;
+    in property <image> icon-subs;
+    in property <image> icon-settings;
+    callback navigate(AppView);
+
+    width: 64px;
+    background: Palette2.card-bg;
+
+    Rectangle {
+        // right-edge separator, matching the header's bottom-separator technique
+        // (Slint's border-width is uniform on all sides, so a single-side border is
+        // drawn as its own thin rectangle instead)
+        x: parent.width - 1px;
+        width: 1px;
+        height: 100%;
+        background: Palette2.card-border;
+    }
+
+    VerticalLayout {
+        padding: 10px;
+        spacing: 6px;
+        alignment: start;
+        RailButton {
+            icon: root.icon-dashboard;
+            active: root.current == AppView.Dashboard;
+            clicked => { root.navigate(AppView.Dashboard); }
+        }
+        RailButton {
+            icon: root.icon-nodes;
+            active: root.current == AppView.Nodes;
+            clicked => { root.navigate(AppView.Nodes); }
+        }
+        RailButton {
+            icon: root.icon-connections;
+            active: root.current == AppView.Connections;
+            clicked => { root.navigate(AppView.Connections); }
+        }
+        RailButton {
+            icon: root.icon-rules;
+            active: root.current == AppView.Rules;
+            clicked => { root.navigate(AppView.Rules); }
+        }
+        RailButton {
+            icon: root.icon-subs;
+            active: root.current == AppView.Subscriptions;
+            clicked => { root.navigate(AppView.Subscriptions); }
+        }
+        Rectangle { vertical-stretch: 1; }
+        RailButton {
+            icon: root.icon-settings;
+            active: root.current == AppView.Settings;
+            clicked => { root.navigate(AppView.Settings); }
+        }
+    }
+}

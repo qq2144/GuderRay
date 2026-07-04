@@ -1,0 +1,47 @@
+// Centralized color tokens. Named Palette2 (not Palette) because std-widgets.slint
+// already exports a `Palette` global used for Fluent-style ColorScheme switching
+// (see MainWindow's `apply-theme` callback) — reusing that name would shadow it.
+export global Palette2 {
+    in-out property <bool> dark: true;
+
+    // surfaces
+    out property <color> page-bg: root.dark ? #0e1015 : #eef0f4;
+    out property <color> card-bg: root.dark ? #171a20 : #ffffff;
+    out property <color> card-border: root.dark ? #262b33 : #e2e5ea;
+    out property <color> row-hover: root.dark ? #1f232b : #eef0f3;
+
+    // text
+    out property <color> text-main: root.dark ? #f1f3f7 : #10131a;
+    out property <color> text-dim: root.dark ? #8b95a5 : #6b7280;
+
+    // brand — amber signal-lamp accent from the approved mockup (replaces the old #3b82f6 blue)
+    out property <color> accent: #F2A93C;
+    // secondary text drawn on top of an accent-filled background (e.g. the selected node
+    // row) — was a pale blue #dbe6ff tuned for the old blue accent; now a warm cream tone
+    // so it stays legible against the new amber fill instead of clashing with it.
+    out property <color> on-accent-dim: #FCEFD8;
+    out property <color> ok-color: #22c55e;
+    out property <color> danger-color: #ef4444;
+    out property <color> warn-color: #f59e0b;
+
+    // semantic route colors: direct/proxy/block are meaningfully distinct from the brand accent
+    out property <color> route-direct: #14b8a6;
+    out property <color> route-proxy: #8b5cf6;
+    out property <color> route-block: #ef4444;
+    // translucent fill under the Dashboard traffic chart's download line — a precomputed
+    // static alpha rather than route-proxy.with-alpha(), for the same reason the pill/banner
+    // colors above are precomputed instead of ternary'd inline.
+    out property <color> chart-fill: root.dark ? #8b5cf629 : #8b5cf61f;
+
+    // toggle-switch track colors (the old hardcoded off-color #3a3f4a was dark-only and never
+    // actually adapted for light mode at any call site — fixed here)
+    out property <color> toggle-off: root.dark ? #3a3f4a : #d1d5db;
+
+    // sites that used to scatter their own inline `root.dark-mode ? A : B` ternaries
+    out property <color> banner-warn-bg: root.dark ? #2a2210 : #fef9e7;
+    out property <color> banner-warn-border: root.dark ? #4a3d17 : #f3e3a1;
+    out property <color> status-pill-off-bg: root.dark ? #23262d : #e5e7eb;
+    out property <color> status-pill-on-bg: #16311f;
+    out property <color> log-bg: root.dark ? #0a0c0f : #f3f4f6;
+    out property <color> log-text: root.dark ? #9fe3a0 : #14532d;
+}

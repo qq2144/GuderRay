@@ -1,0 +1,1907 @@
+import { Button, LineEdit, TextEdit, ScrollView, ComboBox, CheckBox, SpinBox, Palette } from "std-widgets.slint";
+import { Palette2 } from "palette.slint";
+import { IconButton, Icon, Panel, SegmentedControl, RouteChip } from "components.slint";
+import { AppView, IconRail } from "nav.slint";
+
+export struct ProfileRow {
+    id: int,
+    name: string,
+    endpoint: string,
+    group: string,
+    latency: int,  // -1 = untested, -2 = unreachable, >=0 = ms
+    protocol-badge: string,
+}
+
+// Flat mirror of guderray_core::OutboundDraft, shaped for one form with protocol-gated
+// field groups (see crates/guderray-core/src/draft.rs for the two-way mapping + why a
+// flat struct instead of a tagged enum).
+export struct NodeDraft {
+    protocol: string,
+    server: string,
+    port: int,
+    uuid: string,
+    password: string,
+    flow: string,
+    packet-encoding: string,
+    alter-id: int,
+    security: string,
+    method: string,
+    obfs: string,
+    obfs-password: string,
+    congestion-control: string,
+    username: string,
+    tls-enabled: bool,
+    sni: string,
+    insecure: bool,
+    alpn: string,
+    fingerprint: string,
+    reality-public-key: string,
+    reality-short-id: string,
+    transport-type: string,
+    ws-path: string,
+    ws-host: string,
+    grpc-service-name: string,
+    http-host: string,
+    http-path: string,
+    httpupgrade-path: string,
+    httpupgrade-host: string,
+}
+
+export struct SubRow {
+    name: string,
+    url: string,
+}
+
+export struct ConnDisplayRow {
+    host: string,
+    destination: string,
+    down-text: string,
+    up-text: string,
+}
+
+export struct ConnectionRow {
+    id: string,
+    host: string,
+    destination: string,
+    route: string,  // "direct" | "proxy" | "block"
+    duration: string,
+    down-text: string,
+    up-text: string,
+}
+
+component ToggleSwitch inherits Rectangle {
+    in property <string> label;
+    in property <string> sub-label: "";
+    in-out property <bool> checked: false;
+    callback toggled(bool);
+
+    height: sub-label == "" ? 40px : 50px;
+
+    HorizontalLayout {
+        padding-left: 2px;
+        padding-right: 2px;
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            Text { text: root.label; color: Palette2.text-main; font-size: 13px; }
+            if root.sub-label != "": Text { text: root.sub-label; color: Palette2.text-dim; font-size: 11px; }
+        }
+        Rectangle { horizontal-stretch: 1; }
+        // switch track
+        Rectangle {
+            width: 42px;
+            height: 24px;
+            border-radius: 12px;
+            background: root.checked ? Palette2.accent : Palette2.toggle-off;
+            animate background { duration: 130ms; easing: ease-in-out; }
+            y: (parent.height - self.height) / 2;
+            Rectangle {
+                width: 18px;
+                height: 18px;
+                border-radius: 9px;
+                background: white;
+                y: 3px;
+                x: root.checked ? parent.width - self.width - 3px : 3px;
+                animate x { duration: 130ms; easing: ease-in-out; }
+            }
+            ta := TouchArea {
+                clicked => {
+                    root.checked = !root.checked;
+                    root.toggled(root.checked);
+                }
+            }
+        }
+    }
+}
+
+// Labeled text input used throughout the node editor modal (Phase 4) — one component
+// instead of repeating "Text{label} + LineEdit{value}" ~20 times in the form below.
+component FormField inherits VerticalLayout {
+    in property <string> label;
+    in-out property <string> value;
+    in property <string> placeholder: "";
+    spacing: 3px;
+    Text { text: root.label; font-size: 11px; color: Palette2.text-dim; }
+    LineEdit { text <=> root.value; placeholder-text: root.placeholder; }
+}
+
+// Chip-based rule bucket editor (Phase 6) — replaces the old free-text RuleBox
+// textarea. Storage underneath is unchanged (still the newline-joined RuleList text
+// via to_lines()/from_lines()); this is purely a UI-layer upgrade, each chip is one
+// line, add/remove take effect immediately (no separate Save step).
+component RuleChipEditor inherits VerticalLayout {
+    in property <string> label;
+    in property <color> label-color;
+    in property <[string]> entries;
+    in property <string> add-placeholder: "";
+    callback add-entry(string);
+    callback remove-entry(string);
+
+    spacing: 6px;
+    Text { text: root.label; font-size: 12px; font-weight: 600; color: root.label-color; }
+    Rectangle {
+        height: 160px;
+        background: Palette2.page-bg;
+        border-radius: 8px;
+        border-width: 1px;
+        border-color: Palette2.card-border;
+        clip: true;
+        ScrollView {
+            VerticalLayout {
+                padding: 8px;
+                spacing: 6px;
+                alignment: start;
+                if root.entries.length == 0: Text { text: "—"; font-size: 11px; color: Palette2.text-dim; }
+                for e in root.entries: HorizontalLayout {
+                    Rectangle {
+                        border-radius: 4px;
+                        background: Palette2.row-hover;
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 6px;
+                            padding-top: 3px;
+                            padding-bottom: 3px;
+                            spacing: 6px;
+                            Text {
+                                text: e;
+                                font-size: 11px;
+                                font-family: "Consolas";
+                                color: Palette2.text-main;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                            Rectangle {
+                                width: 14px;
+                                height: 14px;
+                                y: (parent.height - self.height) / 2;
+                                Text {
+                                    text: "×";
+                                    font-size: 13px;
+                                    color: Palette2.text-dim;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                                TouchArea { clicked => { root.remove-entry(e); } }
+                            }
+                        }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                }
+            }
+        }
+    }
+    LineEdit {
+        placeholder-text: root.add-placeholder;
+        accepted(text) => {
+            if (text != "") {
+                root.add-entry(text);
+                self.text = "";
+            }
+        }
+    }
+}
+
+// All user-facing strings. Defaults are Chinese (zero regression if Rust never sets them);
+// Rust's apply_language() overwrites every key with zh or en at startup and on toggle.
+export global Tr {
+    in-out property <string> not-running: "未运行";
+    in-out property <string> running-prefix: "运行中 · ";
+    in-out property <string> ready-hint: "GuderRay 就绪。选择一个节点后点击「启动」。";
+    in-out property <string> back: "返回";
+    in-out property <string> settings: "设置";
+    in-out property <string> lang-btn: "EN";
+    in-out property <string> nodes-prefix: "节点 · ";
+    in-out property <string> nodes-suffix: " 个";
+    in-out property <string> test-all: "测速全部";
+    in-out property <string> paste-ph: "粘贴链接/订阅URL，回车导入…";
+    in-out property <string> rename-ph: "重命名选中节点…";
+    in-out property <string> rename: "重命名";
+    in-out property <string> timeout: "超时";
+    in-out property <string> core-missing: "核心组件未就绪";
+    in-out property <string> core-missing-desc: "首次使用需下载 sing-box 内核、wintun 驱动与中国直连规则集 (~45MB)";
+    in-out property <string> downloading: "下载中…";
+    in-out property <string> download-core: "下载核心组件";
+    in-out property <string> routing-ctrl: "分流控制";
+    in-out property <string> cn-direct: "中国直连";
+    in-out property <string> cn-direct-desc: "geosite-cn / geoip-cn 直连，其余走代理";
+    in-out property <string> tun-mode: "TUN 模式";
+    in-out property <string> tun-desc: "接管系统路由，需要管理员权限";
+    in-out property <string> sysproxy: "系统代理";
+    in-out property <string> sysproxy-desc: "设置 Windows 系统代理指向本地端口";
+    in-out property <string> start: "启动";
+    in-out property <string> stop: "停止";
+    in-out property <string> test: "测速";
+    in-out property <string> del: "删除";
+    in-out property <string> repair: "修复网络";
+    in-out property <string> livelog-on: "实时日志·开";
+    in-out property <string> livelog: "实时日志";
+    in-out property <string> sub-mgmt: "订阅管理";
+    in-out property <string> sub-empty: "暂无订阅";
+    in-out property <string> sub-name-ph: "订阅名称";
+    in-out property <string> sub-url-ph: "订阅链接 URL";
+    in-out property <string> sub-add: "添加/更新";
+    in-out property <string> sub-update-all: "全部更新";
+    in-out property <string> remove: "删除";
+    in-out property <string> rules-title: "自定义路由规则";
+    in-out property <string> rules-desc: "每行一条。域名或 IP/CIDR 自动分层；进程名用前缀 process:（如 process:wechat.exe）。支持 geosite: / geoip: / domain: 等前缀。";
+    in-out property <string> bucket-direct: "直连";
+    in-out property <string> bucket-proxy: "代理";
+    in-out property <string> bucket-block: "屏蔽";
+    in-out property <string> general: "通用设置";
+    in-out property <string> autostart: "开机自启";
+    in-out property <string> autostart-desc: "登录 Windows 时自动启动 GuderRay";
+    in-out property <string> autoconnect: "启动即连接";
+    in-out property <string> autoconnect-desc: "打开程序时自动连接上次使用的节点";
+    in-out property <string> nav-dashboard: "仪表盘";
+    in-out property <string> nav-nodes: "节点";
+    in-out property <string> nav-connections: "连接";
+    in-out property <string> nav-rules: "规则";
+    in-out property <string> nav-subs: "订阅";
+    in-out property <string> coming-soon: "即将推出";
+    in-out property <string> no-node-selected: "未选择节点";
+    in-out property <string> hero-latency: "延迟";
+    in-out property <string> hero-uptime: "运行时长";
+    in-out property <string> hero-session: "本次会话";
+    in-out property <string> hero-test-all: "测速全部节点";
+    in-out property <string> hero-view-conns: "查看连接";
+    in-out property <string> chart-legend-down: "下载";
+    in-out property <string> chart-legend-up: "上传";
+    in-out property <string> chart-window: "近 90 秒";
+    in-out property <string> chart-empty: "启动节点后这里会显示实时流量";
+    in-out property <string> quad-title: "本次概览";
+    in-out property <string> quad-active-conns: "活跃连接";
+    in-out property <string> quad-saved-nodes: "已保存节点";
+    in-out property <string> quad-core-version: "sing-box 内核";
+    in-out property <string> quad-ruleset: "规则集更新";
+    in-out property <string> recent-conns-title: "最近连接";
+    in-out property <string> recent-conns-view-all: "查看全部";
+    in-out property <string> recent-conns-empty: "暂无活跃连接";
+
+    // ---- Nodes view + node editor (Phase 4) ----
+    in-out property <string> node-search-ph: "搜索节点…";
+    in-out property <string> node-filter-all: "全部";
+    in-out property <string> node-sort-latency: "延迟排序";
+    in-out property <string> node-sort-name: "名称排序";
+    in-out property <string> node-sort-group: "分组排序";
+    in-out property <string> node-col-node: "节点";
+    in-out property <string> node-col-server: "服务器";
+    in-out property <string> node-col-latency: "延迟";
+    in-out property <string> node-add: "添加节点";
+    in-out property <string> node-import-ph: "粘贴分享链接或订阅 URL，回车导入…";
+    in-out property <string> node-import: "导入";
+    in-out property <string> node-empty: "暂无节点";
+    in-out property <string> node-edit-title: "编辑节点";
+    in-out property <string> node-add-title: "新建节点";
+    in-out property <string> node-field-name: "名称";
+    in-out property <string> node-field-group: "分组";
+    in-out property <string> node-field-protocol: "协议";
+    in-out property <string> node-field-server: "服务器地址";
+    in-out property <string> node-field-port: "端口";
+    in-out property <string> node-field-uuid: "UUID";
+    in-out property <string> node-field-password: "密码";
+    in-out property <string> node-field-flow: "Flow";
+    in-out property <string> node-field-packet-encoding: "Packet Encoding";
+    in-out property <string> node-field-alter-id: "Alter ID";
+    in-out property <string> node-field-security: "加密方式";
+    in-out property <string> node-field-method: "加密方法";
+    in-out property <string> node-field-obfs: "混淆类型";
+    in-out property <string> node-field-obfs-password: "混淆密码";
+    in-out property <string> node-field-congestion: "拥塞控制";
+    in-out property <string> node-field-username: "用户名";
+    in-out property <string> node-field-tls: "启用 TLS";
+    in-out property <string> node-field-sni: "SNI";
+    in-out property <string> node-field-insecure: "跳过证书校验";
+    in-out property <string> node-field-alpn: "ALPN（逗号分隔）";
+    in-out property <string> node-field-fingerprint: "指纹";
+    in-out property <string> node-field-reality-pbk: "Reality 公钥";
+    in-out property <string> node-field-reality-sid: "Reality Short ID";
+    in-out property <string> node-field-transport: "传输层";
+    in-out property <string> node-field-ws-path: "WS 路径";
+    in-out property <string> node-field-ws-host: "WS Host";
+    in-out property <string> node-field-grpc-service: "gRPC 服务名";
+    in-out property <string> node-field-http-host: "HTTP Host（逗号分隔）";
+    in-out property <string> node-field-http-path: "HTTP 路径";
+    in-out property <string> node-field-httpupgrade-path: "HTTPUpgrade 路径";
+    in-out property <string> node-field-httpupgrade-host: "HTTPUpgrade Host";
+    in-out property <string> node-save: "保存";
+    in-out property <string> node-cancel: "取消";
+    in-out property <string> node-raw-notice: "该节点来自导入的原始配置，暂不支持在此编辑。";
+    in-out property <string> node-editor-error-required: "请填写服务器地址、端口，以及该协议要求的必填项。";
+
+    // ---- Connections view (Phase 5) ----
+    in-out property <string> conn-search-ph: "按域名筛选…";
+    in-out property <string> conn-filter-all: "全部";
+    in-out property <string> conn-filter-direct: "直连";
+    in-out property <string> conn-filter-proxy: "代理";
+    in-out property <string> conn-filter-block: "屏蔽";
+    in-out property <string> conn-col-host: "目标";
+    in-out property <string> conn-col-route: "路由";
+    in-out property <string> conn-col-duration: "时长";
+    in-out property <string> conn-close-all: "全部断开";
+    in-out property <string> conn-empty: "暂无活跃连接";
+    in-out property <string> conn-live-hint: "数据来自 Clash API，每 1.5 秒刷新一次";
+
+    // ---- Rules view (Phase 6) ----
+    in-out property <string> rules-mode-global: "全局代理";
+    in-out property <string> rules-mode-cn-direct: "中国直连";
+    in-out property <string> rules-mode-custom: "自定义";
+    in-out property <string> rules-preview-title: "预览分类";
+    in-out property <string> rules-preview-ph: "输入域名，如 chatgpt.com";
+    in-out property <string> rules-preview-caveat: "仅模拟你自己添加的规则；不模拟内置地理规则库（geosite/geoip 数据在本机不可用），中国直连模式下的启发式仅按 .cn 后缀粗略近似，并非精确结果。";
+    in-out property <string> rules-add-ph: "添加域名 / IP / process:进程名，回车确认…";
+
+    // ---- Settings view advanced fields (Phase 8) ----
+    in-out property <string> settings-advanced-title: "高级设置";
+    in-out property <string> settings-restart-hint: "以下设置在下次启动代理时生效，不会热更新正在运行的核心。";
+    in-out property <string> settings-save: "保存高级设置";
+    in-out property <string> settings-field-socks-port: "SOCKS 端口";
+    in-out property <string> settings-field-socks-listen: "SOCKS 监听地址";
+    in-out property <string> settings-field-clash-api-port: "Clash API 端口";
+    in-out property <string> settings-field-direct-dns: "国内 DNS";
+    in-out property <string> settings-field-remote-dns: "远程 DNS";
+    in-out property <string> settings-field-dns-strategy: "DNS 解析策略";
+    in-out property <string> settings-field-tun-stack: "TUN 协议栈";
+    in-out property <string> settings-field-tun-mtu: "TUN MTU";
+    in-out property <string> settings-field-tun-strict-route: "TUN 严格路由";
+    in-out property <string> settings-field-log-level: "日志级别";
+    in-out property <string> settings-field-block-ads: "屏蔽广告（geosite-category-ads-all）";
+}
+
+export component MainWindow inherits Window {
+    title: "GuderRay";
+    preferred-width: 1024px;
+    preferred-height: 640px;
+    min-width: 844px;
+    min-height: 520px;
+    icon: root.app-icon;
+
+    in property <image> app-icon;
+    in property <[ProfileRow]> profiles;
+    in-out property <string> status-summary: "未运行";
+    in-out property <bool> is-running: false;
+    in-out property <string> active-profile-name: "";
+    in-out property <string> log-text: Tr.ready-hint;
+    in-out property <int> selected-id: -1;
+    // Dashboard hero/chart/quad/recent-connections (Phase 3) — all populated by the
+    // status-poll timer in main.rs, none of this does its own disk/network I/O.
+    // pre-built SVG path-command strings (0..100 viewbox) — Slint's Path element
+    // doesn't support `for` loops over sub-elements, so these are built in Rust.
+    in-out property <string> chart-down-fill: "";
+    in-out property <string> chart-down-stroke: "";
+    in-out property <string> chart-up-stroke: "";
+    in-out property <bool> chart-has-data: false;
+    in-out property <string> uptime-text: "";
+    in-out property <string> session-text: "";
+    in-out property <string> core-version-text: "—";
+    in-out property <string> ruleset-updated-text: "—";
+    in-out property <int> active-connections: 0;
+    in-out property <[ConnDisplayRow]> recent-connections: [];
+    // ---- Nodes view (Phase 4): search/filter/sort state + the derived row list.
+    // `nodes-view-rows` is a filtered+sorted view over the SAME underlying profiles as
+    // `profiles` above, computed in Rust — kept as a separate property so filtering the
+    // Nodes table never affects the Dashboard sidebar/hero, which always show everything.
+    in-out property <string> nodes-search: "";
+    in-out property <string> nodes-group-filter: "";
+    in-out property <string> nodes-sort-mode: "latency";
+    in-out property <[ProfileRow]> nodes-view-rows: [];
+    in-out property <[string]> nodes-groups: [];
+    // ---- node editor modal (Phase 4): rendered as a root-level overlay so it can open
+    // from any view. node-editor-id: -1 = adding a new node, >=0 = editing that node.
+    in-out property <bool> node-editor-open: false;
+    in-out property <int> node-editor-id: -1;
+    in-out property <string> node-editor-error: "";
+    in-out property <NodeDraft> node-draft;
+    // ---- Connections view (Phase 5): full live list, refreshed by the same status
+    // timer that already fetches guderray_engine::connections() every 1.5s for the
+    // Dashboard preview (Phase 3) — filter/search changes take effect on the next tick.
+    in-out property <[ConnectionRow]> connections-rows: [];
+    in-out property <string> connections-search: "";
+    in-out property <string> connections-filter: ""; // "" = all, else "direct"/"proxy"/"block"
+    in-out property <int> connections-count-all: 0;
+    in-out property <int> connections-count-direct: 0;
+    in-out property <int> connections-count-proxy: 0;
+    in-out property <int> connections-count-block: 0;
+    in-out property <bool> cn-direct: true;
+    in-out property <bool> tun: false;
+    in-out property <bool> sysproxy: false;
+    in-out property <bool> dark-mode <=> Palette2.dark;
+    in-out property <string> link-input: "";
+    in-out property <bool> assets-ready: true;
+    in-out property <bool> assets-syncing: false;
+    in-out property <string> speed-text: "";
+    in-out property <bool> autostart: false;
+    in-out property <bool> auto-connect: false;
+    in-out property <AppView> current-view: AppView.Dashboard;
+    in-out property <[SubRow]> subscriptions;
+    in-out property <string> sub-name-input: "";
+    in-out property <string> sub-url-input: "";
+    in-out property <string> rename-input: "";
+    in-out property <bool> live-log: false;
+    in property <bool> autostart-supported: true;
+    // ---- Rules view (Phase 6): chip lists mirror UserRules.{direct,proxy,block}, kept
+    // in sync by Rust on every add/remove/routing-mode change (no separate load-on-open
+    // step, matching the 0c "no special load callback" pattern once state is cached).
+    in-out property <[string]> rules-direct-chips: [];
+    in-out property <[string]> rules-proxy-chips: [];
+    in-out property <[string]> rules-block-chips: [];
+    in-out property <string> routing-mode: "cn-direct";
+    in-out property <string> rules-preview-input: "";
+    // ---- Settings view advanced fields (Phase 8): a batch-edit draft, populated from
+    // AppState when the Settings view opens, written back only on explicit Save (unlike
+    // the Rules chips' immediate-persist model — these are mostly free-text/technical
+    // values where per-keystroke saves would be wasteful and could persist a half-typed
+    // URL). Every field already existed in core's Settings struct with zero GUI exposure.
+    in-out property <int> settings-socks-port: 2080;
+    in-out property <string> settings-socks-listen: "127.0.0.1";
+    in-out property <int> settings-clash-api-port: 9090;
+    in-out property <string> settings-direct-dns: "";
+    in-out property <string> settings-remote-dns: "";
+    in-out property <string> settings-dns-strategy: "prefer_ipv4";
+    in-out property <string> settings-tun-stack: "mixed";
+    in-out property <int> settings-tun-mtu: 9000;
+    in-out property <bool> settings-tun-strict-route: false;
+    in-out property <string> settings-log-level: "info";
+    in-out property <bool> settings-block-ads: true;
+
+    callback rename-selected(string);
+    callback repair-network();
+    callback toggle-live-log(bool);
+    callback toggle-language();
+    callback refresh();
+    callback toggle-autostart(bool);
+    callback toggle-autoconnect(bool);
+    callback rule-add(string, string);
+    callback rule-remove(string, string);
+    callback set-routing-mode(string);
+    pure callback preview-classify(string) -> string;
+    callback sub-add(string, string);
+    callback sub-update-all();
+    callback sub-remove(string);
+    callback open-settings();
+    callback save-advanced-settings();
+    callback start-selected();
+    callback stop-proxy();
+    callback select(int);
+    callback toggle-cn(bool);
+    callback toggle-tun(bool);
+    callback toggle-sysproxy(bool);
+    callback add-link(string);
+    callback ping-selected();
+    callback toggle-dark-mode();
+    callback sync-assets();
+    callback delete-selected();
+    callback test-all();
+    callback nodes-filter-changed();
+    callback delete-node(int);
+    callback open-node-editor(int);
+    callback close-node-editor();
+    callback save-node-editor();
+    callback close-connection(string);
+    callback close-all-connections();
+    callback connections-filter-changed();
+
+    // callback with an inline handler: invoking it (from .slint or via Rust's
+    // generated `invoke_apply_theme`) re-applies the Fluent style's color scheme.
+    callback apply-theme(bool);
+    apply-theme(v) => {
+        Palette.color-scheme = v ? ColorScheme.dark : ColorScheme.light;
+    }
+
+    background: Palette2.page-bg;
+
+    VerticalLayout {
+        padding: 0px;
+        spacing: 0px;
+
+        // ---- header ----
+        Rectangle {
+            height: 60px;
+            background: Palette2.card-bg;
+            Rectangle {
+                // bottom separator line (Slint's border-width is uniform on all sides,
+                // so a single-side border is drawn as its own thin rectangle instead)
+                y: parent.height - 1px;
+                width: 100%;
+                height: 1px;
+                background: Palette2.card-border;
+            }
+            HorizontalLayout {
+                padding-left: 20px;
+                padding-right: 16px;
+                spacing: 12px;
+                Text {
+                    text: "GuderRay";
+                    font-size: 19px;
+                    font-weight: 800;
+                    color: Palette2.text-main;
+                    vertical-alignment: center;
+                }
+                Rectangle { horizontal-stretch: 1; }
+                // live speed
+                Text {
+                    text: root.speed-text;
+                    color: Palette2.text-dim;
+                    font-size: 12px;
+                    font-family: "Consolas";
+                    vertical-alignment: center;
+                }
+                // status pill
+                Rectangle {
+                    width: status-txt.preferred-width + 34px;
+                    height: 30px;
+                    border-radius: 15px;
+                    background: root.is-running ? Palette2.status-pill-on-bg : Palette2.status-pill-off-bg;
+                    y: (parent.height - self.height) / 2;
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 12px;
+                        spacing: 7px;
+                        alignment: center;
+                        Rectangle {
+                            width: 8px;
+                            height: 8px;
+                            border-radius: 4px;
+                            y: (parent.height - self.height) / 2;
+                            background: root.is-running ? Palette2.ok-color : Palette2.text-dim;
+                        }
+                        status-txt := Text {
+                            text: root.is-running ? Tr.running-prefix + root.active-profile-name : Tr.not-running;
+                            color: root.is-running ? Palette2.ok-color : Palette2.text-dim;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+                Button {
+                    text: Tr.lang-btn;
+                    width: 42px;
+                    clicked => { root.toggle-language(); }
+                }
+                IconButton {
+                    icon: root.dark-mode ? @image-url("icons/moon.svg") : @image-url("icons/sun.svg");
+                    width: 34px;
+                    clicked => {
+                        root.dark-mode = !root.dark-mode;
+                        root.apply-theme(root.dark-mode);
+                        root.toggle-dark-mode();
+                    }
+                }
+            }
+        }
+
+        // ---- body: nav rail + per-view content ----
+        HorizontalLayout {
+            IconRail {
+                current: root.current-view;
+                icon-dashboard: @image-url("icons/dashboard.svg");
+                icon-nodes: @image-url("icons/nodes.svg");
+                icon-connections: @image-url("icons/connections.svg");
+                icon-rules: @image-url("icons/rules.svg");
+                icon-subs: @image-url("icons/subscriptions.svg");
+                icon-settings: @image-url("icons/settings.svg");
+                navigate(v) => {
+                    root.current-view = v;
+                    if (v == AppView.Settings) { root.open-settings(); }
+                }
+            }
+
+        // ---- Dashboard view: existing combined node-list + controls + log content,
+        // carried over unchanged for Phase 1 — splitting it into separate Dashboard/
+        // Nodes views is Phase 3/4's job, not this one's. ----
+        if root.current-view == AppView.Dashboard : HorizontalLayout {
+            padding: 16px;
+            spacing: 16px;
+
+            // sidebar: node list
+            Panel {
+                width: 300px;
+                clip: true;
+                VerticalLayout {
+                    padding: 14px;
+                    spacing: 10px;
+                    HorizontalLayout {
+                        Text {
+                            text: Tr.nodes-prefix + root.profiles.length + Tr.nodes-suffix;
+                            font-weight: 600;
+                            font-size: 13px;
+                            color: Palette2.text-dim;
+                            vertical-alignment: center;
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                        Button {
+                            text: Tr.test-all;
+                            clicked => { root.test-all(); }
+                        }
+                    }
+                    LineEdit {
+                        placeholder-text: Tr.paste-ph;
+                        text <=> root.link-input;
+                        accepted(text) => { root.add-link(text); root.link-input = ""; }
+                    }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        LineEdit {
+                            horizontal-stretch: 1;
+                            placeholder-text: Tr.rename-ph;
+                            text <=> root.rename-input;
+                            accepted(text) => { root.rename-selected(text); root.rename-input = ""; }
+                        }
+                        Button {
+                            text: Tr.rename;
+                            clicked => { root.rename-selected(root.rename-input); root.rename-input = ""; }
+                        }
+                    }
+                    ScrollView {
+                        VerticalLayout {
+                            spacing: 4px;
+                            for p in root.profiles: Rectangle {
+                                height: 52px;
+                                border-radius: 8px;
+                                background: p.id == root.selected-id ? Palette2.accent : transparent;
+                                animate background { duration: 120ms; }
+                                rowta := TouchArea { clicked => { root.select(p.id); } }
+                                states [
+                                    hover when rowta.has-hover && p.id != root.selected-id: {
+                                        background: Palette2.row-hover;
+                                    }
+                                ]
+                                HorizontalLayout {
+                                    padding-left: 10px;
+                                    padding-right: 10px;
+                                    spacing: 8px;
+                                    VerticalLayout {
+                                        alignment: center;
+                                        spacing: 2px;
+                                        horizontal-stretch: 1;
+                                        Text {
+                                            text: p.name;
+                                            color: p.id == root.selected-id ? white : Palette2.text-main;
+                                            font-size: 13px;
+                                            font-weight: 600;
+                                            overflow: elide;
+                                        }
+                                        Text {
+                                            text: p.group == "" ? p.endpoint : "[" + p.group + "] " + p.endpoint;
+                                            color: p.id == root.selected-id ? Palette2.on-accent-dim : Palette2.text-dim;
+                                            font-size: 11px;
+                                            overflow: elide;
+                                        }
+                                    }
+                                    // latency badge
+                                    Text {
+                                        vertical-alignment: center;
+                                        font-size: 11px;
+                                        font-weight: 600;
+                                        text: p.latency == -1 ? "" : (p.latency == -2 ? Tr.timeout : p.latency + "ms");
+                                        color: p.id == root.selected-id
+                                            ? white
+                                            : (p.latency == -2 ? Palette2.danger-color
+                                               : (p.latency >= 0 && p.latency < 200 ? Palette2.ok-color
+                                                  : Palette2.warn-color));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // main dashboard — scrollable: hero/chart/quad/recent-connections (Phase 3)
+            // plus the pre-existing routing/actions/log content add up to more height
+            // than the window guarantees, same pattern the Settings view already uses.
+            ScrollView {
+            VerticalLayout {
+                spacing: 16px;
+
+                // first-run banner: sing-box core not present yet
+                if !root.assets-ready: Rectangle {
+                    background: Palette2.banner-warn-bg;
+                    border-radius: 12px;
+                    border-width: 1px;
+                    border-color: Palette2.banner-warn-border;
+                    HorizontalLayout {
+                        padding: 14px;
+                        spacing: 12px;
+                        VerticalLayout {
+                            alignment: center;
+                            spacing: 2px;
+                            Text { text: Tr.core-missing; font-weight: 600; font-size: 13px; color: Palette2.text-main; }
+                            Text { text: Tr.core-missing-desc; font-size: 11px; color: Palette2.text-dim; }
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                        Button {
+                            text: root.assets-syncing ? Tr.downloading : Tr.download-core;
+                            primary: true;
+                            enabled: !root.assets-syncing;
+                            clicked => { root.sync-assets(); }
+                        }
+                    }
+                }
+
+                // ---- hero: status + LED, oscilloscope-style traffic chart ----
+                Panel {
+                    HorizontalLayout {
+                        padding: 16px;
+                        spacing: 16px;
+
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            spacing: 14px;
+                            for p in root.profiles: Rectangle {
+                                if p.id == root.selected-id: HorizontalLayout {
+                                    spacing: 10px;
+                                    Rectangle {
+                                        width: 12px;
+                                        height: 12px;
+                                        border-radius: 6px;
+                                        y: (parent.height - self.height) / 2;
+                                        background: root.is-running ? Palette2.ok-color : Palette2.text-dim;
+                                    }
+                                    VerticalLayout {
+                                        alignment: center;
+                                        spacing: 1px;
+                                        Text { text: p.name; font-size: 20px; font-weight: 700; color: Palette2.text-main; overflow: elide; }
+                                        Text {
+                                            text: p.group == "" ? p.endpoint : "[" + p.group + "] " + p.endpoint;
+                                            font-size: 12px;
+                                            color: Palette2.text-dim;
+                                            overflow: elide;
+                                        }
+                                    }
+                                }
+                            }
+                            if root.selected-id < 0: Text {
+                                text: Tr.no-node-selected;
+                                font-size: 15px;
+                                font-weight: 600;
+                                color: Palette2.text-dim;
+                            }
+                            HorizontalLayout {
+                                spacing: 24px;
+                                for p in root.profiles: Rectangle {
+                                    if p.id == root.selected-id: VerticalLayout {
+                                        spacing: 2px;
+                                        Text {
+                                            text: p.latency == -1 ? "—" : (p.latency == -2 ? Tr.timeout : p.latency + "ms");
+                                            font-size: 15px;
+                                            font-weight: 700;
+                                            font-family: "Consolas";
+                                            color: Palette2.text-main;
+                                        }
+                                        Text { text: Tr.hero-latency; font-size: 10px; color: Palette2.text-dim; }
+                                    }
+                                }
+                                VerticalLayout {
+                                    spacing: 2px;
+                                    Text {
+                                        text: root.uptime-text == "" ? "—" : root.uptime-text;
+                                        font-size: 15px;
+                                        font-weight: 700;
+                                        font-family: "Consolas";
+                                        color: Palette2.text-main;
+                                    }
+                                    Text { text: Tr.hero-uptime; font-size: 10px; color: Palette2.text-dim; }
+                                }
+                                VerticalLayout {
+                                    spacing: 2px;
+                                    Text {
+                                        text: root.session-text == "" ? "—" : root.session-text;
+                                        font-size: 15px;
+                                        font-weight: 700;
+                                        font-family: "Consolas";
+                                        color: Palette2.text-main;
+                                    }
+                                    Text { text: Tr.hero-session; font-size: 10px; color: Palette2.text-dim; }
+                                }
+                            }
+                            Rectangle { vertical-stretch: 1; }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Button {
+                                    text: Tr.hero-test-all;
+                                    primary: true;
+                                    clicked => { root.test-all(); }
+                                }
+                                Button {
+                                    text: Tr.hero-view-conns;
+                                    clicked => { root.current-view = AppView.Connections; }
+                                }
+                            }
+                        }
+
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            spacing: 6px;
+                            Rectangle {
+                                height: 170px;
+                                for g in [1, 2, 3]: Rectangle {
+                                    y: parent.height * g / 4;
+                                    height: 1px;
+                                    width: 100%;
+                                    background: Palette2.card-border;
+                                }
+                                if root.chart-has-data: Path {
+                                    width: 100%;
+                                    height: 100%;
+                                    viewbox-width: 100;
+                                    viewbox-height: 100;
+                                    fill: Palette2.chart-fill;
+                                    stroke: transparent;
+                                    commands: root.chart-down-fill;
+                                }
+                                if root.chart-has-data: Path {
+                                    width: 100%;
+                                    height: 100%;
+                                    viewbox-width: 100;
+                                    viewbox-height: 100;
+                                    stroke: Palette2.route-proxy;
+                                    stroke-width: 1.6px;
+                                    fill: transparent;
+                                    commands: root.chart-down-stroke;
+                                }
+                                if root.chart-has-data: Path {
+                                    width: 100%;
+                                    height: 100%;
+                                    viewbox-width: 100;
+                                    viewbox-height: 100;
+                                    stroke: Palette2.accent;
+                                    stroke-width: 1.4px;
+                                    fill: transparent;
+                                    commands: root.chart-up-stroke;
+                                }
+                                if !root.chart-has-data: Text {
+                                    text: Tr.chart-empty;
+                                    color: Palette2.text-dim;
+                                    font-size: 12px;
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                }
+                            }
+                            HorizontalLayout {
+                                spacing: 12px;
+                                HorizontalLayout {
+                                    spacing: 4px;
+                                    Rectangle { width: 8px; height: 8px; border-radius: 4px; y: (parent.height - self.height) / 2; background: Palette2.route-proxy; }
+                                    Text { text: Tr.chart-legend-down; font-size: 11px; color: Palette2.text-dim; }
+                                }
+                                HorizontalLayout {
+                                    spacing: 4px;
+                                    Rectangle { width: 8px; height: 8px; border-radius: 4px; y: (parent.height - self.height) / 2; background: Palette2.accent; }
+                                    Text { text: Tr.chart-legend-up; font-size: 11px; color: Palette2.text-dim; }
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                                Text { text: Tr.chart-window; font-size: 11px; color: Palette2.text-dim; }
+                            }
+                        }
+                    }
+                }
+
+                // ---- quick-stat quad ----
+                Panel {
+                    VerticalLayout {
+                        padding: 16px;
+                        spacing: 10px;
+                        Text { text: Tr.quad-title; font-weight: 600; font-size: 13px; color: Palette2.text-dim; }
+                        HorizontalLayout {
+                            spacing: 10px;
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 3px;
+                                Text { text: root.active-connections; font-size: 17px; font-weight: 700; font-family: "Consolas"; color: Palette2.text-main; }
+                                Text { text: Tr.quad-active-conns; font-size: 10px; color: Palette2.text-dim; }
+                            }
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 3px;
+                                Text { text: root.profiles.length; font-size: 17px; font-weight: 700; font-family: "Consolas"; color: Palette2.text-main; }
+                                Text { text: Tr.quad-saved-nodes; font-size: 10px; color: Palette2.text-dim; }
+                            }
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 3px;
+                                Text { text: root.core-version-text; font-size: 17px; font-weight: 700; font-family: "Consolas"; color: Palette2.text-main; overflow: elide; }
+                                Text { text: Tr.quad-core-version; font-size: 10px; color: Palette2.text-dim; }
+                            }
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 3px;
+                                Text { text: root.ruleset-updated-text; font-size: 17px; font-weight: 700; font-family: "Consolas"; color: Palette2.text-main; }
+                                Text { text: Tr.quad-ruleset; font-size: 10px; color: Palette2.text-dim; }
+                            }
+                        }
+                    }
+                }
+
+                // ---- recent connections preview ----
+                Panel {
+                    VerticalLayout {
+                        padding: 16px;
+                        spacing: 10px;
+                        HorizontalLayout {
+                            Text { text: Tr.recent-conns-title; font-weight: 600; font-size: 14px; color: Palette2.text-main; vertical-alignment: center; }
+                            Rectangle { horizontal-stretch: 1; }
+                            Button {
+                                text: Tr.recent-conns-view-all;
+                                clicked => { root.current-view = AppView.Connections; }
+                            }
+                        }
+                        if root.recent-connections.length == 0: Text {
+                            text: Tr.recent-conns-empty;
+                            font-size: 12px;
+                            color: Palette2.text-dim;
+                        }
+                        for c in root.recent-connections: HorizontalLayout {
+                            padding-top: 4px;
+                            padding-bottom: 4px;
+                            spacing: 10px;
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                alignment: center;
+                                Text { text: c.host == "" ? c.destination : c.host; font-size: 12.5px; color: Palette2.text-main; overflow: elide; }
+                                if c.host != "": Text { text: c.destination; font-size: 11px; color: Palette2.text-dim; overflow: elide; }
+                            }
+                            Text {
+                                text: c.down-text + " / " + c.up-text;
+                                font-size: 11.5px;
+                                font-family: "Consolas";
+                                color: Palette2.text-dim;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+
+                // routing card
+                Panel {
+                    VerticalLayout {
+                        padding: 16px;
+                        spacing: 4px;
+                        Text { text: Tr.routing-ctrl; font-weight: 600; font-size: 13px; color: Palette2.text-dim; }
+                        ToggleSwitch {
+                            label: Tr.cn-direct;
+                            sub-label: Tr.cn-direct-desc;
+                            checked: root.cn-direct;
+                            toggled(v) => { root.cn-direct = v; root.toggle-cn(v); }
+                        }
+                        ToggleSwitch {
+                            label: Tr.tun-mode;
+                            sub-label: Tr.tun-desc;
+                            checked: root.tun;
+                            toggled(v) => { root.tun = v; root.toggle-tun(v); }
+                        }
+                        ToggleSwitch {
+                            label: Tr.sysproxy;
+                            sub-label: Tr.sysproxy-desc;
+                            checked: root.sysproxy;
+                            toggled(v) => { root.sysproxy = v; root.toggle-sysproxy(v); }
+                        }
+                    }
+                }
+
+                // action buttons
+                HorizontalLayout {
+                    spacing: 10px;
+                    IconButton {
+                        icon: @image-url("icons/play.svg");
+                        label: Tr.start;
+                        primary: true;
+                        enabled: root.assets-ready;
+                        clicked => { root.start-selected(); }
+                    }
+                    IconButton {
+                        icon: @image-url("icons/stop.svg");
+                        label: Tr.stop;
+                        clicked => { root.stop-proxy(); }
+                    }
+                    IconButton {
+                        icon: @image-url("icons/bolt.svg");
+                        label: Tr.test;
+                        clicked => { root.ping-selected(); }
+                    }
+                    IconButton {
+                        icon: @image-url("icons/trash.svg");
+                        label: Tr.del;
+                        clicked => { root.delete-selected(); }
+                    }
+                    IconButton {
+                        icon: @image-url("icons/repair.svg");
+                        label: Tr.repair;
+                        clicked => { root.repair-network(); }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    IconButton {
+                        icon: @image-url("icons/log.svg");
+                        label: root.live-log ? Tr.livelog-on : Tr.livelog;
+                        primary: root.live-log;
+                        clicked => {
+                            root.live-log = !root.live-log;
+                            root.toggle-live-log(root.live-log);
+                        }
+                    }
+                    IconButton {
+                        icon: @image-url("icons/refresh.svg");
+                        width: 34px;
+                        clicked => { root.refresh(); }
+                    }
+                }
+
+                // log / output panel (fixed height: this column now lives inside a
+                // ScrollView, so vertical-stretch has nothing bounded to stretch against)
+                Rectangle {
+                    height: 220px;
+                    background: Palette2.log-bg;
+                    border-radius: 12px;
+                    border-width: 1px;
+                    border-color: Palette2.card-border;
+                    clip: true;
+                    ScrollView {
+                        VerticalLayout {
+                            padding: 12px;
+                            Text {
+                                text: root.log-text;
+                                color: Palette2.log-text;
+                                font-family: "Consolas";
+                                font-size: 12px;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+                }
+            }
+            }
+        }
+
+        // ---- settings view (subscriptions + routing rules) ----
+        if root.current-view == AppView.Settings : ScrollView {
+            VerticalLayout {
+                padding: 16px;
+                spacing: 16px;
+
+                // general settings card
+                Panel {
+                    VerticalLayout {
+                        padding: 16px;
+                        spacing: 4px;
+                        Text { text: Tr.general; font-weight: 600; font-size: 14px; color: Palette2.text-main; }
+                        if root.autostart-supported : ToggleSwitch {
+                            label: Tr.autostart;
+                            sub-label: Tr.autostart-desc;
+                            checked: root.autostart;
+                            toggled(v) => { root.autostart = v; root.toggle-autostart(v); }
+                        }
+                        ToggleSwitch {
+                            label: Tr.autoconnect;
+                            sub-label: Tr.autoconnect-desc;
+                            checked: root.auto-connect;
+                            toggled(v) => { root.auto-connect = v; root.toggle-autoconnect(v); }
+                        }
+                    }
+                }
+
+                // advanced settings card (Phase 8) — 11 Settings fields that already
+                // existed in core with no GUI form before this; batch-edit + explicit Save.
+                Panel {
+                    VerticalLayout {
+                        padding: 16px;
+                        spacing: 10px;
+                        Text { text: Tr.settings-advanced-title; font-weight: 600; font-size: 14px; color: Palette2.text-main; }
+                        Text {
+                            text: Tr.settings-restart-hint;
+                            font-size: 11px;
+                            color: Palette2.text-dim;
+                            wrap: word-wrap;
+                        }
+
+                        HorizontalLayout {
+                            spacing: 10px;
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 3px;
+                                Text { text: Tr.settings-field-socks-port; font-size: 11px; color: Palette2.text-dim; }
+                                SpinBox { value <=> root.settings-socks-port; minimum: 1; maximum: 65535; }
+                            }
+                            FormField { horizontal-stretch: 1; label: Tr.settings-field-socks-listen; value <=> root.settings-socks-listen; }
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 3px;
+                                Text { text: Tr.settings-field-clash-api-port; font-size: 11px; color: Palette2.text-dim; }
+                                SpinBox { value <=> root.settings-clash-api-port; minimum: 1; maximum: 65535; }
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: 10px;
+                            FormField { horizontal-stretch: 1; label: Tr.settings-field-direct-dns; value <=> root.settings-direct-dns; }
+                            FormField { horizontal-stretch: 1; label: Tr.settings-field-remote-dns; value <=> root.settings-remote-dns; }
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 3px;
+                                Text { text: Tr.settings-field-dns-strategy; font-size: 11px; color: Palette2.text-dim; }
+                                ComboBox {
+                                    model: ["prefer_ipv4", "prefer_ipv6", "ipv4_only", "ipv6_only"];
+                                    current-index: root.settings-dns-strategy == "prefer_ipv6" ? 1
+                                        : (root.settings-dns-strategy == "ipv4_only" ? 2
+                                        : (root.settings-dns-strategy == "ipv6_only" ? 3 : 0));
+                                    selected(s) => { root.settings-dns-strategy = s; }
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: 10px;
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 3px;
+                                Text { text: Tr.settings-field-tun-stack; font-size: 11px; color: Palette2.text-dim; }
+                                ComboBox {
+                                    model: ["mixed", "system", "gvisor"];
+                                    current-index: root.settings-tun-stack == "system" ? 1 : (root.settings-tun-stack == "gvisor" ? 2 : 0);
+                                    selected(s) => { root.settings-tun-stack = s; }
+                                }
+                            }
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 3px;
+                                Text { text: Tr.settings-field-tun-mtu; font-size: 11px; color: Palette2.text-dim; }
+                                SpinBox { value <=> root.settings-tun-mtu; minimum: 576; maximum: 65535; }
+                            }
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 3px;
+                                Text { text: Tr.settings-field-log-level; font-size: 11px; color: Palette2.text-dim; }
+                                ComboBox {
+                                    model: ["trace", "debug", "info", "warn", "error", "fatal"];
+                                    current-index: root.settings-log-level == "trace" ? 0
+                                        : (root.settings-log-level == "debug" ? 1
+                                        : (root.settings-log-level == "warn" ? 3
+                                        : (root.settings-log-level == "error" ? 4
+                                        : (root.settings-log-level == "fatal" ? 5 : 2))));
+                                    selected(s) => { root.settings-log-level = s; }
+                                }
+                            }
+                        }
+                        CheckBox { text: Tr.settings-field-tun-strict-route; checked <=> root.settings-tun-strict-route; }
+                        CheckBox { text: Tr.settings-field-block-ads; checked <=> root.settings-block-ads; }
+
+                        HorizontalLayout {
+                            Rectangle { horizontal-stretch: 1; }
+                            IconButton {
+                                icon: @image-url("icons/save.svg");
+                                label: Tr.settings-save;
+                                primary: true;
+                                clicked => { root.save-advanced-settings(); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ---- Nodes view (Phase 4): search/filter/sort + table + edit/delete ----
+        if root.current-view == AppView.Nodes : ScrollView {
+            VerticalLayout {
+                padding: 16px;
+                spacing: 16px;
+
+                HorizontalLayout {
+                    Text { text: Tr.nav-nodes; font-size: 18px; font-weight: 700; color: Palette2.text-main; vertical-alignment: center; }
+                    Rectangle { horizontal-stretch: 1; }
+                    IconButton {
+                        icon: @image-url("icons/plus.svg");
+                        label: Tr.node-add;
+                        primary: true;
+                        clicked => { root.open-node-editor(-1); }
+                    }
+                }
+
+                // import row
+                Panel {
+                    HorizontalLayout {
+                        padding: 14px;
+                        spacing: 10px;
+                        LineEdit {
+                            horizontal-stretch: 1;
+                            placeholder-text: Tr.node-import-ph;
+                            text <=> root.link-input;
+                            accepted(text) => { root.add-link(text); root.link-input = ""; }
+                        }
+                        Button {
+                            text: Tr.node-import;
+                            clicked => { root.add-link(root.link-input); root.link-input = ""; }
+                        }
+                    }
+                }
+
+                // search + sort + group filter
+                Panel {
+                    VerticalLayout {
+                        padding: 14px;
+                        spacing: 10px;
+                        HorizontalLayout {
+                            spacing: 10px;
+                            LineEdit {
+                                horizontal-stretch: 1;
+                                placeholder-text: Tr.node-search-ph;
+                                text <=> root.nodes-search;
+                                edited(t) => { root.nodes-filter-changed(); }
+                            }
+                            ComboBox {
+                                width: 150px;
+                                model: [Tr.node-sort-latency, Tr.node-sort-name, Tr.node-sort-group];
+                                current-index: root.nodes-sort-mode == "name" ? 1 : (root.nodes-sort-mode == "group" ? 2 : 0);
+                                selected(s) => {
+                                    root.nodes-sort-mode = s == Tr.node-sort-name ? "name" : (s == Tr.node-sort-group ? "group" : "latency");
+                                    root.nodes-filter-changed();
+                                }
+                            }
+                        }
+                        if root.nodes-groups.length > 0 : HorizontalLayout {
+                            spacing: 6px;
+                            Rectangle {
+                                height: 26px;
+                                border-radius: 13px;
+                                background: root.nodes-group-filter == "" ? Palette2.accent : Palette2.row-hover;
+                                HorizontalLayout {
+                                    padding-left: 12px;
+                                    padding-right: 12px;
+                                    alignment: center;
+                                    Text {
+                                        text: Tr.node-filter-all;
+                                        font-size: 11px;
+                                        font-weight: 600;
+                                        color: root.nodes-group-filter == "" ? #1a1204 : Palette2.text-dim;
+                                    }
+                                }
+                                TouchArea { clicked => { root.nodes-group-filter = ""; root.nodes-filter-changed(); } }
+                            }
+                            for g in root.nodes-groups: Rectangle {
+                                height: 26px;
+                                border-radius: 13px;
+                                background: root.nodes-group-filter == g ? Palette2.accent : Palette2.row-hover;
+                                HorizontalLayout {
+                                    padding-left: 12px;
+                                    padding-right: 12px;
+                                    alignment: center;
+                                    Text {
+                                        text: g;
+                                        font-size: 11px;
+                                        font-weight: 600;
+                                        color: root.nodes-group-filter == g ? #1a1204 : Palette2.text-dim;
+                                    }
+                                }
+                                TouchArea { clicked => { root.nodes-group-filter = g; root.nodes-filter-changed(); } }
+                            }
+                        }
+                    }
+                }
+
+                // table
+                Panel {
+                    VerticalLayout {
+                        padding: 16px;
+                        spacing: 2px;
+                        if root.nodes-view-rows.length == 0: Text {
+                            text: Tr.node-empty;
+                            color: Palette2.text-dim;
+                            font-size: 12px;
+                        }
+                        for p in root.nodes-view-rows: Rectangle {
+                            height: 46px;
+                            border-radius: 6px;
+                            background: noderowta.has-hover ? Palette2.row-hover : transparent;
+                            animate background { duration: 100ms; }
+                            // declared before the row content so its full-row TouchArea sits
+                            // underneath the edit/delete IconButtons' own TouchAreas — clicks
+                            // on those buttons hit them first, everything else falls through
+                            // to this one (same layering the sidebar node list already uses).
+                            noderowta := TouchArea { clicked => { root.select(p.id); } }
+                            HorizontalLayout {
+                                padding-left: 8px;
+                                padding-right: 8px;
+                                spacing: 10px;
+                                Rectangle {
+                                    width: 30px;
+                                    height: 20px;
+                                    y: (parent.height - self.height) / 2;
+                                    border-radius: 4px;
+                                    border-width: 1px;
+                                    border-color: Palette2.route-proxy;
+                                    Text {
+                                        text: p.protocol-badge;
+                                        font-size: 10px;
+                                        font-weight: 700;
+                                        color: Palette2.route-proxy;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    alignment: center;
+                                    spacing: 1px;
+                                    Text { text: p.name; font-size: 13px; font-weight: 600; color: Palette2.text-main; overflow: elide; }
+                                    Text {
+                                        text: p.group == "" ? p.endpoint : "[" + p.group + "] " + p.endpoint;
+                                        font-size: 11px;
+                                        color: Palette2.text-dim;
+                                        overflow: elide;
+                                    }
+                                }
+                                Text {
+                                    vertical-alignment: center;
+                                    font-size: 11px;
+                                    font-weight: 600;
+                                    text: p.latency == -1 ? "—" : (p.latency == -2 ? Tr.timeout : p.latency + "ms");
+                                    color: p.latency == -2 ? Palette2.danger-color
+                                        : (p.latency >= 0 && p.latency < 200 ? Palette2.ok-color : Palette2.warn-color);
+                                }
+                                IconButton {
+                                    icon: @image-url("icons/edit.svg");
+                                    icon-size: 14px;
+                                    clicked => { root.open-node-editor(p.id); }
+                                }
+                                IconButton {
+                                    icon: @image-url("icons/trash.svg");
+                                    icon-size: 14px;
+                                    clicked => { root.delete-node(p.id); }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // ---- Connections view (Phase 5): live from the Clash API, refreshed every 1.5s
+        // by the same status timer that drives the Dashboard preview. ----
+        if root.current-view == AppView.Connections : ScrollView {
+            VerticalLayout {
+                padding: 16px;
+                spacing: 16px;
+
+                HorizontalLayout {
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 2px;
+                        Text { text: Tr.nav-connections; font-size: 18px; font-weight: 700; color: Palette2.text-main; }
+                        Text { text: Tr.conn-live-hint; font-size: 11px; color: Palette2.text-dim; }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    IconButton {
+                        icon: @image-url("icons/trash.svg");
+                        label: Tr.conn-close-all;
+                        enabled: root.connections-count-all > 0;
+                        clicked => { root.close-all-connections(); }
+                    }
+                }
+
+                Panel {
+                    VerticalLayout {
+                        padding: 14px;
+                        spacing: 10px;
+                        HorizontalLayout {
+                            spacing: 6px;
+                            Rectangle {
+                                height: 26px;
+                                border-radius: 13px;
+                                background: root.connections-filter == "" ? Palette2.accent : Palette2.row-hover;
+                                HorizontalLayout {
+                                    padding-left: 12px;
+                                    padding-right: 12px;
+                                    alignment: center;
+                                    Text {
+                                        text: Tr.conn-filter-all + " · " + root.connections-count-all;
+                                        font-size: 11px;
+                                        font-weight: 600;
+                                        color: root.connections-filter == "" ? #1a1204 : Palette2.text-dim;
+                                    }
+                                }
+                                TouchArea { clicked => { root.connections-filter = ""; root.connections-filter-changed(); } }
+                            }
+                            Rectangle {
+                                height: 26px;
+                                border-radius: 13px;
+                                background: root.connections-filter == "direct" ? Palette2.route-direct : Palette2.row-hover;
+                                HorizontalLayout {
+                                    padding-left: 12px;
+                                    padding-right: 12px;
+                                    alignment: center;
+                                    Text {
+                                        text: Tr.conn-filter-direct + " · " + root.connections-count-direct;
+                                        font-size: 11px;
+                                        font-weight: 600;
+                                        color: root.connections-filter == "direct" ? white : Palette2.text-dim;
+                                    }
+                                }
+                                TouchArea { clicked => { root.connections-filter = "direct"; root.connections-filter-changed(); } }
+                            }
+                            Rectangle {
+                                height: 26px;
+                                border-radius: 13px;
+                                background: root.connections-filter == "proxy" ? Palette2.route-proxy : Palette2.row-hover;
+                                HorizontalLayout {
+                                    padding-left: 12px;
+                                    padding-right: 12px;
+                                    alignment: center;
+                                    Text {
+                                        text: Tr.conn-filter-proxy + " · " + root.connections-count-proxy;
+                                        font-size: 11px;
+                                        font-weight: 600;
+                                        color: root.connections-filter == "proxy" ? white : Palette2.text-dim;
+                                    }
+                                }
+                                TouchArea { clicked => { root.connections-filter = "proxy"; root.connections-filter-changed(); } }
+                            }
+                            Rectangle {
+                                height: 26px;
+                                border-radius: 13px;
+                                background: root.connections-filter == "block" ? Palette2.route-block : Palette2.row-hover;
+                                HorizontalLayout {
+                                    padding-left: 12px;
+                                    padding-right: 12px;
+                                    alignment: center;
+                                    Text {
+                                        text: Tr.conn-filter-block + " · " + root.connections-count-block;
+                                        font-size: 11px;
+                                        font-weight: 600;
+                                        color: root.connections-filter == "block" ? white : Palette2.text-dim;
+                                    }
+                                }
+                                TouchArea { clicked => { root.connections-filter = "block"; root.connections-filter-changed(); } }
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                            LineEdit {
+                                width: 220px;
+                                placeholder-text: Tr.conn-search-ph;
+                                text <=> root.connections-search;
+                                edited(t) => { root.connections-filter-changed(); }
+                            }
+                        }
+                    }
+                }
+
+                Panel {
+                    VerticalLayout {
+                        padding: 16px;
+                        spacing: 2px;
+                        if root.connections-rows.length == 0: Text {
+                            text: Tr.conn-empty;
+                            color: Palette2.text-dim;
+                            font-size: 12px;
+                        }
+                        for c in root.connections-rows: Rectangle {
+                            height: 44px;
+                            border-radius: 6px;
+                            background: connrowta.has-hover ? Palette2.row-hover : transparent;
+                            animate background { duration: 100ms; }
+                            connrowta := TouchArea {}
+                            HorizontalLayout {
+                                padding-left: 8px;
+                                padding-right: 8px;
+                                spacing: 10px;
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    alignment: center;
+                                    spacing: 1px;
+                                    Text { text: c.host; font-size: 13px; font-weight: 600; color: Palette2.text-main; overflow: elide; }
+                                    Text { text: c.destination; font-size: 11px; color: Palette2.text-dim; overflow: elide; }
+                                }
+                                RouteChip { y: (parent.height - self.height) / 2; route: c.route; label: c.route == "direct" ? Tr.conn-filter-direct : (c.route == "block" ? Tr.conn-filter-block : Tr.conn-filter-proxy); }
+                                Text {
+                                    width: 60px;
+                                    vertical-alignment: center;
+                                    horizontal-alignment: right;
+                                    font-size: 11px;
+                                    font-family: "Consolas";
+                                    color: Palette2.text-dim;
+                                    text: c.duration;
+                                }
+                                Text {
+                                    width: 130px;
+                                    vertical-alignment: center;
+                                    horizontal-alignment: right;
+                                    font-size: 11px;
+                                    font-family: "Consolas";
+                                    color: Palette2.text-dim;
+                                    text: c.down-text + " / " + c.up-text;
+                                }
+                                IconButton {
+                                    icon: @image-url("icons/trash.svg");
+                                    icon-size: 14px;
+                                    clicked => { root.close-connection(c.id); }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // ---- Rules view (Phase 6): routing mode + live preview + chip-based editors ----
+        if root.current-view == AppView.Rules : ScrollView {
+            VerticalLayout {
+                padding: 16px;
+                spacing: 16px;
+
+                Text { text: Tr.nav-rules; font-size: 18px; font-weight: 700; color: Palette2.text-main; }
+
+                Panel {
+                    VerticalLayout {
+                        padding: 14px;
+                        spacing: 8px;
+                        Text { text: Tr.routing-ctrl; font-weight: 600; font-size: 13px; color: Palette2.text-dim; }
+                        SegmentedControl {
+                            options: [Tr.rules-mode-global, Tr.rules-mode-cn-direct, Tr.rules-mode-custom];
+                            selected: root.routing-mode == "global" ? 0 : (root.routing-mode == "custom" ? 2 : 1);
+                            selected-changed(i) => {
+                                root.set-routing-mode(i == 0 ? "global" : (i == 2 ? "custom" : "cn-direct"));
+                            }
+                        }
+                    }
+                }
+
+                Panel {
+                    VerticalLayout {
+                        padding: 14px;
+                        spacing: 8px;
+                        property <string> preview-route: root.preview-classify(root.rules-preview-input);
+                        Text { text: Tr.rules-preview-title; font-weight: 600; font-size: 13px; color: Palette2.text-dim; }
+                        HorizontalLayout {
+                            spacing: 10px;
+                            LineEdit {
+                                horizontal-stretch: 1;
+                                placeholder-text: Tr.rules-preview-ph;
+                                text <=> root.rules-preview-input;
+                            }
+                            RouteChip {
+                                y: (parent.height - self.height) / 2;
+                                route: preview-route;
+                                label: preview-route == "direct" ? Tr.bucket-direct
+                                    : (preview-route == "block" ? Tr.bucket-block : Tr.bucket-proxy);
+                            }
+                        }
+                        Text {
+                            text: Tr.rules-preview-caveat;
+                            font-size: 10.5px;
+                            color: Palette2.text-dim;
+                            wrap: word-wrap;
+                        }
+                    }
+                }
+
+                Panel {
+                    VerticalLayout {
+                        padding: 16px;
+                        spacing: 10px;
+                        Text { text: Tr.rules-title; font-weight: 600; font-size: 14px; color: Palette2.text-main; }
+                        Text {
+                            text: Tr.rules-desc;
+                            font-size: 11px;
+                            color: Palette2.text-dim;
+                            wrap: word-wrap;
+                        }
+                        HorizontalLayout {
+                            spacing: 10px;
+                            RuleChipEditor {
+                                horizontal-stretch: 1;
+                                label: Tr.bucket-direct;
+                                label-color: Palette2.route-direct;
+                                entries: root.rules-direct-chips;
+                                add-placeholder: Tr.rules-add-ph;
+                                add-entry(e) => { root.rule-add("direct", e); }
+                                remove-entry(e) => { root.rule-remove("direct", e); }
+                            }
+                            RuleChipEditor {
+                                horizontal-stretch: 1;
+                                label: Tr.bucket-proxy;
+                                label-color: Palette2.route-proxy;
+                                entries: root.rules-proxy-chips;
+                                add-placeholder: Tr.rules-add-ph;
+                                add-entry(e) => { root.rule-add("proxy", e); }
+                                remove-entry(e) => { root.rule-remove("proxy", e); }
+                            }
+                            RuleChipEditor {
+                                horizontal-stretch: 1;
+                                label: Tr.bucket-block;
+                                label-color: Palette2.route-block;
+                                entries: root.rules-block-chips;
+                                add-placeholder: Tr.rules-add-ph;
+                                add-entry(e) => { root.rule-add("block", e); }
+                                remove-entry(e) => { root.rule-remove("block", e); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // ---- Subscriptions view (Phase 7): pure relocation from the old Settings page,
+        // same on-sub-add/on-sub-update-all/on-sub-remove callbacks, no new logic. ----
+        if root.current-view == AppView.Subscriptions : ScrollView {
+            VerticalLayout {
+                padding: 16px;
+                spacing: 16px;
+
+                HorizontalLayout {
+                    Text { text: Tr.nav-subs; font-size: 18px; font-weight: 700; color: Palette2.text-main; vertical-alignment: center; }
+                    Rectangle { horizontal-stretch: 1; }
+                    IconButton {
+                        icon: @image-url("icons/refresh.svg");
+                        label: Tr.sub-update-all;
+                        clicked => { root.sub-update-all(); }
+                    }
+                }
+
+                Panel {
+                    VerticalLayout {
+                        padding: 16px;
+                        spacing: 10px;
+                        Text { text: Tr.sub-mgmt; font-weight: 600; font-size: 14px; color: Palette2.text-main; }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            LineEdit {
+                                width: 160px;
+                                placeholder-text: Tr.sub-name-ph;
+                                text <=> root.sub-name-input;
+                            }
+                            LineEdit {
+                                horizontal-stretch: 1;
+                                placeholder-text: Tr.sub-url-ph;
+                                text <=> root.sub-url-input;
+                            }
+                            Button {
+                                text: Tr.sub-add;
+                                primary: true;
+                                clicked => {
+                                    root.sub-add(root.sub-name-input, root.sub-url-input);
+                                    root.sub-name-input = "";
+                                    root.sub-url-input = "";
+                                }
+                            }
+                        }
+                        if root.subscriptions.length == 0: Text {
+                            text: Tr.sub-empty;
+                            font-size: 12px;
+                            color: Palette2.text-dim;
+                        }
+                        for s in root.subscriptions: HorizontalLayout {
+                            spacing: 8px;
+                            Text {
+                                text: s.name;
+                                font-weight: 600;
+                                font-size: 12px;
+                                color: Palette2.text-main;
+                                vertical-alignment: center;
+                                width: 160px;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: s.url;
+                                font-size: 11px;
+                                color: Palette2.text-dim;
+                                vertical-alignment: center;
+                                horizontal-stretch: 1;
+                                overflow: elide;
+                            }
+                            Button {
+                                text: Tr.remove;
+                                clicked => { root.sub-remove(s.name); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        }
+    }
+
+    // ---- node editor modal (Phase 4) — a root-level overlay so it can open from any
+    // view; declared last so it paints on top of everything above. ----
+    if root.node-editor-open : Rectangle {
+        background: #000000aa;
+
+        Rectangle {
+            width: min(560px, parent.width - 40px);
+            height: min(640px, parent.height - 40px);
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            background: Palette2.card-bg;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: Palette2.card-border;
+            clip: true;
+
+            property <[string]> proto-values: ["vless", "vmess", "trojan", "shadowsocks", "hysteria2", "tuic", "socks", "http"];
+            property <[string]> proto-labels: ["VLESS", "VMess", "Trojan", "Shadowsocks", "Hysteria2", "TUIC", "SOCKS", "HTTP"];
+            // pure derived index (never assigned to) so it can't drift from node-draft.protocol —
+            // callbacks below only ever write root.node-draft.protocol, never this.
+            property <int> proto-index: root.node-draft.protocol == "vmess" ? 1
+                : (root.node-draft.protocol == "trojan" ? 2
+                : (root.node-draft.protocol == "shadowsocks" ? 3
+                : (root.node-draft.protocol == "hysteria2" ? 4
+                : (root.node-draft.protocol == "tuic" ? 5
+                : (root.node-draft.protocol == "socks" ? 6
+                : (root.node-draft.protocol == "http" ? 7 : 0))))));
+
+            VerticalLayout {
+                Rectangle {
+                    height: 48px;
+                    HorizontalLayout {
+                        padding: 16px;
+                        Text {
+                            text: root.node-editor-id < 0 ? Tr.node-add-title : Tr.node-edit-title;
+                            font-size: 15px;
+                            font-weight: 700;
+                            color: Palette2.text-main;
+                            vertical-alignment: center;
+                        }
+                    }
+                    Rectangle { y: parent.height - 1px; width: 100%; height: 1px; background: Palette2.card-border; }
+                }
+
+                if root.node-draft.protocol == "raw": VerticalLayout {
+                    padding: 20px;
+                    Text { text: Tr.node-raw-notice; color: Palette2.text-dim; font-size: 13px; wrap: word-wrap; }
+                }
+
+                if root.node-draft.protocol != "raw": ScrollView {
+                    VerticalLayout {
+                        padding: 16px;
+                        spacing: 12px;
+
+                        VerticalLayout {
+                            spacing: 3px;
+                            Text { text: Tr.node-field-protocol; font-size: 11px; color: Palette2.text-dim; }
+                            SegmentedControl {
+                                options: proto-labels;
+                                selected: proto-index;
+                                selected-changed(i) => {
+                                    root.node-draft.protocol = proto-values[i];
+                                }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            spacing: 10px;
+                            FormField { horizontal-stretch: 1; label: Tr.node-field-server; value <=> root.node-draft.server; }
+                            VerticalLayout {
+                                width: 100px;
+                                spacing: 3px;
+                                Text { text: Tr.node-field-port; font-size: 11px; color: Palette2.text-dim; }
+                                SpinBox { value <=> root.node-draft.port; minimum: 1; maximum: 65535; }
+                            }
+                        }
+
+                        // protocol-specific identity fields
+                        if root.node-draft.protocol == "vless" || root.node-draft.protocol == "tuic": FormField {
+                            label: Tr.node-field-uuid;
+                            value <=> root.node-draft.uuid;
+                        }
+                        if root.node-draft.protocol == "vmess": HorizontalLayout {
+                            spacing: 10px;
+                            FormField { horizontal-stretch: 1; label: Tr.node-field-uuid; value <=> root.node-draft.uuid; }
+                            VerticalLayout {
+                                width: 100px;
+                                spacing: 3px;
+                                Text { text: Tr.node-field-alter-id; font-size: 11px; color: Palette2.text-dim; }
+                                SpinBox { value <=> root.node-draft.alter-id; minimum: 0; maximum: 65535; }
+                            }
+                        }
+                        if root.node-draft.protocol == "vmess": FormField { label: Tr.node-field-security; value <=> root.node-draft.security; placeholder: "auto"; }
+                        if root.node-draft.protocol == "trojan" || root.node-draft.protocol == "hysteria2"
+                            || root.node-draft.protocol == "tuic" || root.node-draft.protocol == "shadowsocks": FormField {
+                            label: Tr.node-field-password;
+                            value <=> root.node-draft.password;
+                        }
+                        if root.node-draft.protocol == "shadowsocks": FormField { label: Tr.node-field-method; value <=> root.node-draft.method; placeholder: "aes-256-gcm"; }
+                        if root.node-draft.protocol == "vless": FormField { label: Tr.node-field-flow; value <=> root.node-draft.flow; placeholder: "xtls-rprx-vision"; }
+                        if root.node-draft.protocol == "vless": FormField { label: Tr.node-field-packet-encoding; value <=> root.node-draft.packet-encoding; placeholder: "xudp"; }
+                        if root.node-draft.protocol == "hysteria2": HorizontalLayout {
+                            spacing: 10px;
+                            FormField { horizontal-stretch: 1; label: Tr.node-field-obfs; value <=> root.node-draft.obfs; placeholder: "salamander"; }
+                            FormField { horizontal-stretch: 1; label: Tr.node-field-obfs-password; value <=> root.node-draft.obfs-password; }
+                        }
+                        if root.node-draft.protocol == "tuic": FormField { label: Tr.node-field-congestion; value <=> root.node-draft.congestion-control; placeholder: "bbr"; }
+                        if root.node-draft.protocol == "socks" || root.node-draft.protocol == "http": HorizontalLayout {
+                            spacing: 10px;
+                            FormField { horizontal-stretch: 1; label: Tr.node-field-username; value <=> root.node-draft.username; }
+                            FormField { horizontal-stretch: 1; label: Tr.node-field-password; value <=> root.node-draft.password; }
+                        }
+
+                        // transport (vless/vmess/trojan only)
+                        if root.node-draft.protocol == "vless" || root.node-draft.protocol == "vmess" || root.node-draft.protocol == "trojan": VerticalLayout {
+                            spacing: 3px;
+                            Text { text: Tr.node-field-transport; font-size: 11px; color: Palette2.text-dim; }
+                            SegmentedControl {
+                                options: ["none", "ws", "grpc", "http", "httpupgrade"];
+                                selected: root.node-draft.transport-type == "ws" ? 1
+                                    : (root.node-draft.transport-type == "grpc" ? 2
+                                        : (root.node-draft.transport-type == "http" ? 3
+                                            : (root.node-draft.transport-type == "httpupgrade" ? 4 : 0)));
+                                selected-changed(i) => {
+                                    root.node-draft.transport-type = i == 1 ? "ws" : (i == 2 ? "grpc" : (i == 3 ? "http" : (i == 4 ? "httpupgrade" : "")));
+                                }
+                            }
+                        }
+                        if root.node-draft.transport-type == "ws": HorizontalLayout {
+                            spacing: 10px;
+                            FormField { horizontal-stretch: 1; label: Tr.node-field-ws-path; value <=> root.node-draft.ws-path; placeholder: "/"; }
+                            FormField { horizontal-stretch: 1; label: Tr.node-field-ws-host; value <=> root.node-draft.ws-host; }
+                        }
+                        if root.node-draft.transport-type == "grpc": FormField { label: Tr.node-field-grpc-service; value <=> root.node-draft.grpc-service-name; }
+                        if root.node-draft.transport-type == "http": HorizontalLayout {
+                            spacing: 10px;
+                            FormField { horizontal-stretch: 1; label: Tr.node-field-http-host; value <=> root.node-draft.http-host; }
+                            FormField { horizontal-stretch: 1; label: Tr.node-field-http-path; value <=> root.node-draft.http-path; placeholder: "/"; }
+                        }
+                        if root.node-draft.transport-type == "httpupgrade": HorizontalLayout {
+                            spacing: 10px;
+                            FormField { horizontal-stretch: 1; label: Tr.node-field-httpupgrade-path; value <=> root.node-draft.httpupgrade-path; placeholder: "/"; }
+                            FormField { horizontal-stretch: 1; label: Tr.node-field-httpupgrade-host; value <=> root.node-draft.httpupgrade-host; }
+                        }
+
+                        // TLS group: vless/vmess/trojan/http can toggle it; hysteria2/tuic always have it on
+                        // (sing-box requires TLS for those two protocols regardless of what's stored here).
+                        if root.node-draft.protocol == "vless" || root.node-draft.protocol == "vmess"
+                            || root.node-draft.protocol == "trojan" || root.node-draft.protocol == "http": CheckBox {
+                            text: Tr.node-field-tls;
+                            checked <=> root.node-draft.tls-enabled;
+                        }
+                        if root.node-draft.protocol == "hysteria2" || root.node-draft.protocol == "tuic"
+                            || root.node-draft.tls-enabled: VerticalLayout {
+                            spacing: 10px;
+                            FormField { label: Tr.node-field-sni; value <=> root.node-draft.sni; }
+                            CheckBox { text: Tr.node-field-insecure; checked <=> root.node-draft.insecure; }
+                            FormField { label: Tr.node-field-alpn; value <=> root.node-draft.alpn; placeholder: "h2,http/1.1"; }
+                            FormField { label: Tr.node-field-fingerprint; value <=> root.node-draft.fingerprint; placeholder: "chrome"; }
+                            HorizontalLayout {
+                                spacing: 10px;
+                                FormField { horizontal-stretch: 1; label: Tr.node-field-reality-pbk; value <=> root.node-draft.reality-public-key; }
+                                FormField { horizontal-stretch: 1; label: Tr.node-field-reality-sid; value <=> root.node-draft.reality-short-id; }
+                            }
+                        }
+                    }
+                }
+
+                if root.node-editor-error != "": Rectangle {
+                    background: Palette2.banner-warn-bg;
+                    HorizontalLayout {
+                        padding: 10px;
+                        Text { text: root.node-editor-error; color: Palette2.danger-color; font-size: 12px; wrap: word-wrap; }
+                    }
+                }
+
+                Rectangle {
+                    height: 60px;
+                    HorizontalLayout {
+                        padding: 16px;
+                        spacing: 10px;
+                        Rectangle { horizontal-stretch: 1; }
+                        Button { text: Tr.node-cancel; clicked => { root.close-node-editor(); } }
+                        if root.node-draft.protocol != "raw": Button {
+                            text: Tr.node-save;
+                            primary: true;
+                            clicked => { root.save-node-editor(); }
+                        }
+                    }
+                    Rectangle { width: 100%; height: 1px; background: Palette2.card-border; }
+                }
+            }
+        }
+    }
+}
